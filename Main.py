@@ -1,205 +1,226 @@
 import streamlit as st
+import sqlite3
 import pandas as pd
-import os
-from datetime import date, time, datetime
+from datetime import date
 
-# --- CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(page_title="Calculadora de Ganhos 🚖", page_icon="🚖", layout="centered")
+# --- 1. CONFIGURAÇÃO E ESTILO (VISUAL PROFISSIONAL) ---
+st.set_page_config(page_title="CheckPoint Shift 🏁", layout="wide")
 
-ARQUIVO_USUARIOS = "usuarios.csv"
+# CSS para remover o pano branco, aumentar ícones e destacar botões
+st.markdown("""
+<style>
+    /* Fundo Principal com sobreposição escura para leitura */
+    .stApp {
+        background: linear-gradient(rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.8)), 
+                    url("https://images.unsplash.com/photo-1614850523296-d8c1af93d400?q=80&w=2070&auto=format&fit=crop");
+        background-size: cover;
+        background-attachment: fixed;
+    }
 
-# --- FUNÇÕES DE SUPORTE ---
-def carregar_usuarios():
-    if os.path.exists(ARQUIVO_USUARIOS):
-        return pd.read_csv(ARQUIVO_USUARIOS, dtype=str)
-    else:
-        # Cria arquivo inicial caso não exista
-        df = pd.DataFrame([{"usuario": "matheus", "senha": "123"}])
-        df.to_csv(ARQUIVO_USUARIOS, index=False)
-        return df
+    /* Estilo das Abas (Ícones Maiores) */
+    .stTabs [data-baseweb="tab"] {
+        color: white !important;
+        font-size: 22px !important;
+        font-weight: bold;
+        padding: 10px 20px;
+    }
 
-# Inicializa o estado de login
-if "logado" not in st.session_state:
-    st.session_state.logado = False
-if "usuario_atual" not in st.session_state:
-    st.session_state.usuario_atual = ""
+    /* Blocos de conteúdo (Efeito Vidro) */
+    [data-testid="stForm"], .st-expander, .stMetric, div[data-testid="stVerticalBlock"] > div {
+        background-color: rgba(255, 255, 255, 0.07) !important;
+        backdrop-filter: blur(15px);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 15px !important;
+        padding: 20px;
+        margin-bottom: 10px;
+    }
 
-# --- TELA DE ACESSO (LOGIN E CADASTRO) ---
-def tela_acesso():
-    st.markdown("<h1 style='text-align: center; color: #FFD700;'>🚖 Sistema de Ganhos</h1>", unsafe_allow_html=True)
-    aba1, aba2 = st.tabs(["Entrar", "Criar Conta"])
-    df_usuarios = carregar_usuarios()
+    /* Botões Padrão (Maiores e Visíveis) */
+    .stButton>button {
+        width: 100%;
+        border-radius: 10px;
+        font-weight: bold;
+        font-size: 18px !important;
+        height: 3.2em;
+        background-color: rgba(255, 255, 255, 0.1) !important;
+        color: white !important;
+        border: 2px solid rgba(255, 255, 255, 0.4) !important;
+        transition: 0.3s;
+    }
 
-    with aba1:
-        u_login = st.text_input("Usuário", key="login_user").strip().lower()
-        s_login = st.text_input("Senha", type="password", key="login_pass").strip()
-        
-        if st.button("Entrar no Painel", use_container_width=True):
-            if not df_usuarios.empty:
-                # Verificação exata de usuário e senha
-                user_match = df_usuarios[(df_usuarios['usuario'].str.lower() == u_login) & (df_usuarios['senha'] == s_login)]
-                if not user_match.empty:
-                    st.session_state.logado = True
-                    st.session_state.usuario_atual = u_login
-                    st.rerun()
-                else:
-                    st.error("Usuário ou senha incorretos.")
-            else:
-                st.error("Nenhum usuário cadastrado.")
+    .stButton>button:hover {
+        background-color: #ffffff !important;
+        color: #000000 !important;
+        border: 2px solid #ffffff !important;
+    }
 
-    with aba2:
-        novo_u = st.text_input("Novo Usuário", key="cad_user").strip().lower()
-        novo_s = st.text_input("Nova Senha", type="password", key="cad_pass").strip()
-        
-        if st.button("Criar Minha Conta", use_container_width=True):
-            if novo_u == "" or novo_s == "":
-                st.error("Preencha todos os campos!")
-            elif novo_u in df_usuarios['usuario'].str.lower().values:
-                st.error("Este usuário já existe!")
-            else:
-                novo_reg = pd.DataFrame([{"usuario": novo_u, "senha": novo_s}])
-                df_final = pd.concat([df_usuarios, novo_reg], ignore_index=True)
-                df_final.to_csv(ARQUIVO_USUARIOS, index=False)
-                st.success("Conta criada com sucesso! Faça login na aba ao lado.")
+    /* Estilo para as Lixeiras e Botões de Perigo (Vermelho) */
+    div.stButton > button[key^="del_"], div.stButton > button:contains("ZERAR") {
+        border: 2px solid #ff4b4b !important;
+        color: #ff4b4b !important;
+        background-color: rgba(255, 75, 75, 0.1) !important;
+    }
 
-# --- PAINEL PRINCIPAL (APÓS LOGIN) ---
-if st.session_state.logado:
-    user = st.session_state.usuario_atual
-    arq_dados = f"dados_{user}.csv"
-    arq_meta = f"meta_{user}.txt"
+    div.stButton > button[key^="del_"]:hover {
+        background-color: #ff4b4b !important;
+        color: white !important;
+    }
 
-    # Carregar Meta
-    if os.path.exists(arq_meta):
-        with open(arq_meta, "r") as f:
+    /* Textos e Títulos */
+    h1, h2, h3, h4, label, p, span { color: #ffffff !important; text-shadow: 2px 2px 4px #000; }
+    [data-testid="stMetricValue"] { font-size: 35px !important; color: #00FFCC !important; }
+    
+    /* Inputs (Onde digita) */
+    input {
+        background-color: rgba(0, 0, 0, 0.5) !important;
+        color: white !important;
+        border: 1px solid rgba(255, 255, 255, 0.3) !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+def conectar():
+    conn = sqlite3.connect("checkpoint_shift_mateus.db", check_same_thread=False)
+    cursor = conn.cursor()
+    cursor.execute("CREATE TABLE IF NOT EXISTS usuarios (usuario TEXT PRIMARY KEY, senha TEXT)")
+    cursor.execute("CREATE TABLE IF NOT EXISTS veiculo (usuario TEXT PRIMARY KEY, km_ini REAL, km_alvo REAL, custo REAL, fipe REAL, guardado_ipva REAL)")
+    cursor.execute("CREATE TABLE IF NOT EXISTS metas (id INTEGER PRIMARY KEY, usuario TEXT, item TEXT, valor REAL, data TEXT, guardado REAL)")
+    cursor.execute("CREATE TABLE IF NOT EXISTS ganhos (id INTEGER PRIMARY KEY, usuario TEXT, data TEXT, ganho REAL, gasto REAL, km REAL, h_ini TEXT, h_fim TEXT)")
+    conn.commit()
+    return conn, cursor
+
+conn, cursor = conectar()
+
+# --- 2. LOGIN ---
+if "autenticado" not in st.session_state: st.session_state.autenticado = False
+
+if not st.session_state.autenticado:
+    st.markdown("<h1 style='text-align: center;'>🏁 CheckPoint Shift</h1>", unsafe_allow_html=True)
+    aba_login, aba_cad = st.tabs(["🔑 ACESSAR", "📝 CRIAR CONTA"])
+    with aba_login:
+        u = st.text_input("Usuário").lower().strip()
+        s = st.text_input("Senha", type="password")
+        if st.button("ENTRAR NO PAINEL"):
+            if cursor.execute("SELECT * FROM usuarios WHERE usuario=? AND senha=?", (u, s)).fetchone():
+                st.session_state.autenticado, st.session_state.user = True, u
+                st.rerun()
+            else: st.error("Usuário ou senha incorretos.")
+    with aba_cad:
+        nu = st.text_input("Novo Usuário").lower().strip()
+        ns = st.text_input("Sua Senha", type="password")
+        if st.button("CADASTRAR E FINALIZAR"):
             try:
-                meta_atual = float(f.read())
-            except:
-                meta_atual = 0.0
-    else:
-        meta_atual = 0.0
+                cursor.execute("INSERT INTO usuarios VALUES (?,?)", (nu, ns))
+                conn.commit(); st.success("✅ Conta criada! Volte na aba Acessar.")
+            except: st.error("❌ Nome de usuário já existe.")
+    st.stop()
 
-    # Barra Lateral
-    st.sidebar.write(f"👤 Motorista: **{user.capitalize()}**")
-    if st.sidebar.button("Sair"):
-        st.session_state.logado = False
-        st.session_state.usuario_atual = ""
-        st.rerun()
+user = st.session_state.user
+hoje = date.today()
 
-    st.title("📊 Gestão de Ganhos")
+# --- 3. DADOS DO VEÍCULO ---
+v_data = cursor.execute("SELECT * FROM veiculo WHERE usuario=?", (user,)).fetchone()
+if v_data is None:
+    st.header(f"Olá, {user.upper()}! 🚀")
+    with st.form("cfg_carro"):
+        f1 = st.number_input("Valor FIPE do Carro", value=45000.0)
+        f2 = st.number_input("KM Atual do Painel", value=100000.0)
+        if st.form_submit_button("SALVAR E ABRIR MEU PAINEL"):
+            cursor.execute("INSERT INTO veiculo VALUES (?,?,?,?,?,?)", (user, f2, f2+10000, 350.0, f1, 0.0))
+            conn.commit(); st.rerun()
+    st.stop()
 
-    # Carregar Dados do Usuário
-    if os.path.exists(arq_dados):
-        df_dados = pd.read_csv(arq_dados)
-        # Garantir colunas numéricas
-        for col in ['Ganho', 'Gasto', 'KM']:
-            if col not in df_dados.columns:
-                df_dados[col] = 0.0
-            df_dados[col] = pd.to_numeric(df_dados[col], errors='coerce').fillna(0.0)
-        # Garantir colunas de texto (horários)
-        if 'H_Inicio' not in df_dados.columns: df_dados['H_Inicio'] = "06:00"
-        if 'H_Fim' not in df_dados.columns: df_dados['H_Fim'] = "11:00"
-    else:
-        df_dados = pd.DataFrame(columns=["Data", "Ganho", "Gasto", "KM", "H_Inicio", "H_Fim"])
+# --- 4. PAINEL PRINCIPAL ---
+st.title(f"🚀 PAINEL: {user.upper()}")
+tab_ipva, tab_ganhos, tab_metas = st.tabs(["📊 RESUMO & IPVA", "💰 MEUS GANHOS", "🎯 MINHAS CAIXINHAS"])
 
-    # --- FORMULÁRIO DE LANÇAMENTO ---
-    with st.container(border=True):
-        st.subheader("🎯 Configuração Diária")
-        
-        input_meta = st.number_input("Sua Meta Diária (R$)", min_value=0.0, value=meta_atual, step=10.0)
-        if input_meta != meta_atual:
-            with open(arq_meta, "w") as f:
-                f.write(str(input_meta))
-            st.rerun()
-
-        st.markdown("---")
-        c1, c2, c3 = st.columns(3)
-        val_ganho = c1.number_input("Ganho Bruto (R$)", min_value=0.0, step=1.0)
-        val_gasto = c2.number_input("Gasto (R$)", min_value=0.0, step=1.0)
-        val_km = c3.number_input("KM Rodado", min_value=0.0, step=1.0)
-        
-        ch1, ch2 = st.columns(2)
-        val_h_ini = ch1.time_input("Horário de Início", value=time(6, 0))
-        val_h_fim = ch2.time_input("Horário de Término", value=time(11, 0))
-        
-        if st.button("➕ SALVAR REGISTRO", use_container_width=True, type="primary"):
-            hoje_data = date.today().strftime("%d/%m/%Y")
-            nova_linha = pd.DataFrame({
-                "Data": [hoje_data], 
-                "Ganho": [val_ganho], 
-                "Gasto": [val_gasto], 
-                "KM": [val_km],
-                "H_Inicio": [val_h_ini.strftime("%H:%M")],
-                "H_Fim": [val_h_fim.strftime("%H:%M")]
-            })
-            df_dados = pd.concat([df_dados, nova_linha], ignore_index=True)
-            df_dados.to_csv(arq_dados, index=False)
-            st.success("Registro salvo com sucesso!")
-            st.rerun()
-
-    # --- CÁLCULOS TOTAIS DO DIA ---
-    hoje_hoje = date.today().strftime("%d/%m/%Y")
-    df_hoje = df_dados[df_dados['Data'] == hoje_hoje]
+# ABA IPVA
+with tab_ipva:
+    fipe, guardado_ipva = v_data[4], v_data[5]
+    total_ipva = fipe * 0.04
+    st.subheader("📌 Gestão Financeira IPVA")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("IPVA Total (4%)", f"R$ {total_ipva:.2f}")
+    c2.metric("Já Guardado", f"R$ {guardado_ipva:.2f}")
+    c3.metric("Falta Guardar", f"R$ {total_ipva - guardado_ipva:.2f}")
     
-    total_bruto = df_hoje['Ganho'].sum()
-    total_km = df_hoje['KM'].sum()
-    saldo_liquido = total_bruto - df_hoje['Gasto'].sum()
-    
-    # Cálculo de Horas e Valor por Hora
-    horas_totais = 0.0
-    for _, linha in df_hoje.iterrows():
-        try:
-            formato = "%H:%M"
-            t_ini = datetime.strptime(linha['H_Inicio'], formato)
-            t_fim = datetime.strptime(linha['H_Fim'], formato)
-            diferenca = (t_fim - t_ini).total_seconds() / 3600
-            if diferenca < 0: diferenca += 24 # Caso trabalhe após meia-noite
-            horas_totais += diferenca
-        except:
-            continue
+    val_ipva = st.number_input("Valor da Operação (R$):", value=0.0, key="val_ipva")
+    col_a, col_b, col_c = st.columns(3)
+    if col_a.button("📥 DEPOSITAR"):
+        cursor.execute("UPDATE veiculo SET guardado_ipva = guardado_ipva + ? WHERE usuario=?", (val_ipva, user))
+        conn.commit(); st.rerun()
+    if col_b.button("📤 RETIRAR"):
+        cursor.execute("UPDATE veiculo SET guardado_ipva = guardado_ipva - ? WHERE usuario=?", (val_ipva, user))
+        conn.commit(); st.rerun()
+    if col_c.button("🗑️ ZERAR IPVA", key="del_ipva"):
+        cursor.execute("UPDATE veiculo SET guardado_ipva = 0 WHERE usuario=?", (user,))
+        conn.commit(); st.rerun()
 
-    val_km_medio = total_bruto / total_km if total_km > 0 else 0
-    val_hora_media = total_bruto / horas_totais if horas_totais > 0 else 0
+# ABA GANHOS
+with tab_ganhos:
+    with st.form("form_ganhos", clear_on_submit=True):
+        st.subheader("Gravar Trabalho Diário")
+        g, gst, k = st.columns(3)
+        v_g = g.number_input("Ganho Bruto do Dia")
+        v_gst = gst.number_input("Gasto Gás/Alimentação")
+        v_k = k.number_input("KM Rodados")
+        if st.form_submit_button("💾 SALVAR JORNADA"):
+            cursor.execute("INSERT INTO ganhos (usuario, data, ganho, gasto, km, h_ini, h_fim) VALUES (?,?,?,?,?,?,?)", 
+                           (user, str(hoje), v_g, v_gst, v_k, "08:00", "18:00"))
+            conn.commit(); st.success("Gravado!"); st.rerun()
 
-    # --- STATUS VISUAL ---
-    if input_meta > 0:
-        cor_box = "#28a745" if saldo_liquido >= input_meta else "#dc3545"
-        status_txt = "✅ META BATIDA!" if saldo_liquido >= input_meta else "❌ META AINDA NÃO ATINGIDA"
-    else:
-        cor_box = "#444444"
-        status_txt = "🎯 DEFINA UMA META DIÁRIA"
+    st.subheader("📜 Histórico Recente")
+    df_g = pd.read_sql_query(f"SELECT * FROM ganhos WHERE usuario='{user}' ORDER BY id DESC", conn)
+    for i, r in df_g.iterrows():
+        with st.container():
+            col_txt, col_del = st.columns([5, 1])
+            col_txt.write(f"📅 **{r['data']}** | Lucro: **R$ {r['ganho']-r['gasto']:.2f}** | KM: {r['km']}")
+            if col_del.button("🗑️", key=f"del_g_{r['id']}"):
+                cursor.execute("DELETE FROM ganhos WHERE id=?", (r['id'],))
+                conn.commit(); st.rerun()
 
-    st.markdown(f"""
-        <div style="background-color: {cor_box}; padding: 25px; border-radius: 15px; text-align: center; color: white; margin-bottom: 20px;">
-            <p style="margin: 0; opacity: 0.8;">Saldo Líquido de Hoje</p>
-            <h1 style="margin: 0; font-size: 3em;">R$ {saldo_liquido:.2f}</h1>
-            <p style="font-weight: bold; margin-top: 10px;">{status_txt}</p>
-        </div>
-    """, unsafe_allow_html=True)
+# ABA CAIXINHAS
+with tab_metas:
+    st.subheader("🎯 Suas Metas e Sonhos")
+    with st.expander("➕ ADICIONAR NOVO SONHO"):
+        with st.form("meta_sonho"):
+            it = st.text_input("Qual o objetivo?"); v = st.number_input("Valor Necessário R$")
+            if st.form_submit_button("CRIAR CAIXINHA"):
+                cursor.execute("INSERT INTO metas (usuario, item, valor, data, guardado) VALUES (?,?,?,?,?)", 
+                               (user, it, v, str(hoje), 0.0))
+                conn.commit(); st.rerun()
 
-    # Métricas
-    col_m1, col_m2, col_m3 = st.columns(3)
-    col_m1.metric("KM Total", f"{total_km:.1f} km")
-    col_m2.metric("R$ por KM", f"R$ {val_km_medio:.2f}")
-    col_m3.metric("R$ por Hora", f"R$ {val_hora_media:.2f}")
+    metas_db = pd.read_sql_query(f"SELECT * FROM metas WHERE usuario='{user}'", conn)
+    for i, m in metas_db.iterrows():
+        with st.container():
+            st.write(f"### 🚀 {m['item']}")
+            ja_meta = m['guardado'] or 0.0
+            st.progress(min(ja_meta / m['valor'], 1.0) if m['valor'] > 0 else 0)
+            st.write(f"Guardado: **R$ {ja_meta:.2f}** / Meta: R$ {m['valor']:.2f}")
+            
+            v_mov = st.number_input("Valor da Operação:", key=f"val_m_{m['id']}", value=0.0)
+            c1, c2, c3 = st.columns(3)
+            if c1.button("📥 DEPOSITAR", key=f"in_m_{m['id']}"):
+                cursor.execute("UPDATE metas SET guardado = guardado + ? WHERE id=?", (v_mov, m['id']))
+                conn.commit(); st.rerun()
+            if c2.button("📤 RETIRAR", key=f"out_m_{m['id']}"):
+                cursor.execute("UPDATE metas SET guardado = guardado - ? WHERE id=?", (v_mov, m['id']))
+                conn.commit(); st.rerun()
+            if c3.button("🗑️ APAGAR", key=f"del_m_{m['id']}"):
+                cursor.execute("DELETE FROM metas WHERE id=?", (m['id'],))
+                conn.commit(); st.rerun()
 
-    # --- HISTÓRICO ---
-    if not df_dados.empty:
-        st.markdown("---")
-        st.subheader("📜 Histórico Recente")
-        for i, registro in df_dados.iloc[::-1].head(10).iterrows():
-            with st.container(border=True):
-                c_inf, c_val, c_btn = st.columns([1.5, 2, 0.5])
-                with c_inf:
-                    st.write(f"📅 **{registro['Data']}**")
-                    st.write(f"⏰ {registro['H_Inicio']} às {registro['H_Fim']}")
-                with c_val:
-                    lucro_reg = float(registro['Ganho']) - float(registro['Gasto'])
-                    st.write(f"💰 Lucro: **R$ {lucro_reg:.2f}**")
-                    st.write(f"🚗 {registro['KM']} km")
-                with c_btn:
-                    if st.button("🗑️", key=f"del_{i}"):
-                        df_dados = df_dados.drop(i)
-                        df_dados.to_csv(arq_dados, index=False)
-                        st.rerun()
-else:
-    tela_acesso()
+# BARRA LATERAL
+st.sidebar.title("⚙️ CONFIGURAÇÕES")
+if st.sidebar.button("🚪 SAIR DO APP"):
+    st.session_state.autenticado = False
+    st.rerun()
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("ZONA DE PERIGO")
+if st.sidebar.button("⚠️ ZERAR TODOS OS MEUS DADOS"):
+    cursor.execute("DELETE FROM ganhos WHERE usuario=?", (user,))
+    cursor.execute("DELETE FROM metas WHERE usuario=?", (user,))
+    cursor.execute("DELETE FROM veiculo WHERE usuario=?", (user,))
+    conn.commit()
+    st.rerun()
